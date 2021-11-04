@@ -1,0 +1,536 @@
+---
+title: "NewHatch General Analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Library Packages
+```{r}
+library(stats)
+library(nlstools) 
+library(tidyverse)
+library(scatterplot3d)
+```
+
+#Load Required Functions -- Data Cleaning Function and Prediction Optmizer
+```{R}
+data_prep <- function(Data, multiple_target = FALSE, dab_conc, delimeter = ";", dab_first = TRUE, dabc = "x", cabc = "ug", sample_dil = "4x") {
+  if (multiple_target == FALSE) {
+    #convert ct values to numeric
+    Data$CT <- as.numeric(Data$CT)
+    
+    #split datasets into signal set and background (0) set
+    data2_0 <- Data[Data$Sample == "0",]
+    data2_sig <- Data[Data$Sample == sample_dil,]
+
+    #get average CT values 
+    data2_0 <- data2_0 %>%
+      group_by(Sample, Target) %>%
+      mutate(avrg = mean(CT, na.rm = T))
+    
+    data2_sig <- data2_sig %>%
+      group_by(Sample, Target) %>%
+      mutate(avrg = mean(CT, na.rm = T))
+    
+    #obtain dcq
+    data3 <- data2_sig
+    
+    data3$dcq <- data2_0$avrg - data2_sig$avrg 
+    
+    #rename signal and add noise CT
+    rename(data3, avrg_sig = avrg)
+    
+    data3$avrg_0 <- data2_0$CT
+    
+    #remove redundant "CT" variable 
+    data3 <- data3 %>%
+      select(-c(CT, Sample))
+    
+    #split ab info column into two with cab concentration and dab concentration
+    if(dab_first == TRUE){
+      data3 <- separate(data3, col = Target,
+                        into = c("dab", "cab"),
+                        sep = delimeter)
+      
+      #remove ug from Cab, and convert to numeric
+      data3[] <- lapply(data3, gsub, 
+                        pattern = cabc,
+                        replacement = '')
+      data3$cab <- as.numeric(data3$cab)
+      
+      #remove x from Dab, and convert to numeric
+      data3[] <- lapply(data3, gsub, 
+                        pattern = dabc,
+                        replacement = '')
+      
+      data3$dab <- as.numeric(data3$dab)
+      
+      #convert dab into concentration
+      data3$dab <- dab_conc/data3$dab
+      
+      data3$dab <-as.numeric(data3$dab)
+      data3$cab <-as.numeric(data3$cab)
+      data3$dcq <-as.numeric(data3$dcq)
+      
+      #Remove duplicated rows from method of obtaining dcq data
+      data3<- data3[duplicated(data3$dcq)==FALSE,]
+    } else{
+        data3 <- separate(data3, col = Target,
+                        into = c("cab", "dab"),
+                        sep = delimeter)
+      
+        #remove ug from Cab, and convert to numeric
+        data3[] <- lapply(data3, gsub, 
+                          pattern = cabc,
+                          replacement = '')
+        data3$cab <- as.numeric(data3$cab)
+        
+        #remove x from Dab, and convert to numeric
+        data3[] <- lapply(data3, gsub, 
+                          pattern = dabc,
+                          replacement = '')
+        
+        data3$dab <- as.numeric(data3$dab)
+        
+        #convert dab into concentration
+        data3$dab <- dab_conc/data3$dab
+        
+        data3$dab <-as.numeric(data3$dab)
+        data3$cab <-as.numeric(data3$cab)
+        data3$dcq <-as.numeric(data3$dcq)
+        
+        #Remove duplicated rows from method of obtaining dcq data
+        data3<- data3[duplicated(data3$dcq)==FALSE,]
+    }
+    
+    
+    
+    return(data3)
+    
+  } else {
+    print("Multiple targets not currently supported")
+  }
+}
+
+surface_fitter <- function(data, equation = Gom, verbose = TRUE, mat_size = 100){
+  #extract vectors for data fitting
+  dcq1 <- data$dcq
+  cab1 <- data$cab
+  dab1 <- data$dab
+  
+  #populate an initial conditions guess matrix
+  A <- runif(mat_size, 0, 15)
+  B <- runif(mat_size, -5, 5)
+  C <- runif(mat_size, -15, 1)
+  D <- runif(mat_size, 0, 15)
+  E <- runif(mat_size, -5, 5)
+  Fn <- runif(mat_size, -15, 1)
+  
+  #populate an initial value guess matrix and an empty list to store fitted curves
+  guess_mat <- data.table::data.table(A,B,C,D,E,Fn)
+  gom_fit_list <- vector(mode = "list", length = nrow(guess_mat))
+
+  #Fit equation 
+  for (i in 1:nrow(guess_mat)){
+    #attempt to fit curve for given starting condition, store if gradient is non-singular 
+    gom_fit_list[[i]] <- try(nls(dcq1 ~ Gom(cab1, dab1, a,b,c,d,e,f), start = list(a=guess_mat$A[i],b=guess_mat$B[i],c=guess_mat$C[i],d=guess_mat$D[i],e=guess_mat$E[i],f=guess_mat$Fn[i])), silent = TRUE)
+    #Drop singular gradient results
+    if (gom_fit_list[[i]][1] == "Error in nls(dcq1 ~ Gom(cab1, dab1, a, b, c, d, e, f), start = list(a = guess_mat$A[i],  : \n  singular gradient\n"){
+      gom_fit_list[[i]] <- NA
+    }
+  }
+
+  #Drop all Atomic lists (the remainder of failed convergence models)
+
+  for (i in 1:length(gom_fit_list)){
+    if (is.atomic(gom_fit_list[[i]]) == TRUE){
+      gom_fit_list[[i]] <- NA
+    } else {
+      gom_fit_list[[i]] <- gom_fit_list[[i]]
+    }
+  }
+
+  #Drop all NA
+  gom_fit_list <- gom_fit_list[!is.na(gom_fit_list)]
+
+  if(verbose == TRUE){
+    if(length(gom_fit_list) > 0 ){
+      print("Solutions found!")
+    } else {
+      print("Model convergence failure!")
+    }
+  }
+
+  #Drop extraneous solutions (negative a and d paramers)
+  for (i in 1:length(gom_fit_list)){
+    if (coef(gom_fit_list[[i]])[1] < 0 || coef(gom_fit_list[[i]])[4] < 0){
+      gom_fit_list[[i]] <- NA
+    }
+  }
+
+  #Drop all NA
+  gom_fit_list <- gom_fit_list[!is.na(gom_fit_list)]
+
+  if(verbose == TRUE){
+    if(length(gom_fit_list) > 0 ){
+      print("Solutions are Plausible!")
+    } else {
+      print("Model convergence failure: No real solutions!")
+    }
+  }
+  
+
+  #Populate a vector for sum of squared residuals, then pick model with lowest SSR
+  if(length(gom_fit_list) > 0){
+    
+    SSR_vector <-vector(mode = "numeric")
+    for (i in 1:length(gom_fit_list)){
+      SSR_vector[i] <-sum(gom_fit_list[[i]]$m$resid()^2)
+    }
+    #Pick model with lowest SSR
+    gom_fit <- gom_fit_list[[which.min(SSR_vector)]]
+  } else (
+    gom_fit <- NA
+  )
+  
+  #Retry surface fitting with more robust initial matrix if first attempt fails
+  if(is.na(gom_fit$m[1]) == TRUE & mat_size < 1000){
+    print("Expanding initial conditions; reattempting to fit model.")
+    MATSIZE <- 1000
+    gom_fit <- surface_fitter(data = data, equation = equation, verbose = TRUE, mat_size = MATSIZE)
+  } else {
+    gom_fit <- gom_fit
+  }
+  
+  return(gom_fit)
+}
+
+jack_fitter <- function(data,p){
+  #init matrix to hold parameters
+  N_nrow <- nrow(data)
+  parms_mat <- data.table::data.table(a = as.numeric(rep(NA,N_nrow)), b = as.numeric(rep(NA,N_nrow)), 
+                                      c = as.numeric(rep(NA,N_nrow)), d = as.numeric(rep(NA,N_nrow)), 
+                                      e = as.numeric(rep(NA,N_nrow)), f = as.numeric(rep(NA,N_nrow)))
+  #Leave one out reampling estimation
+  print("resampling...")
+  for (i in 1:nrow(Data2)){
+    #leave one out sequentially 
+    data3 <- Data2
+    data3[i,] <- NA
+    
+    ## Fit reSampled Model ##
+    gom_fit1 <- try(surface_fitter(data3, verbose = FALSE), silent = TRUE)
+    
+    #Store parameter result
+    if(is.atomic(gom_fit1) == FALSE){
+      storer <- coef(gom_fit1)
+    } else {
+      storer <- NA
+    }
+    parms_mat[i,1] <- storer[1]
+    parms_mat[i,2] <- storer[2]
+    parms_mat[i,3] <- storer[3]
+    parms_mat[i,4] <- storer[4]
+    parms_mat[i,5] <- storer[5]
+    parms_mat[i,6] <- storer[6]
+    
+  }
+  
+  #Leave one out parameters
+  A <- mean(parms_mat$a, na.rm = T)
+  B <- mean(parms_mat$b, na.rm = T)
+  C <- mean(parms_mat$c, na.rm = T)
+  D <- mean(parms_mat$d, na.rm = T)
+  E <- mean(parms_mat$e, na.rm = T)
+  Fn <- mean(parms_mat$f, na.rm = T)
+  
+  #Number of Samples
+  n <- nrow(data)
+  #bias corrected parameters -- bias correction is too extreme breaking models!
+  Aj <- n*p["a"] - ((n-1)*A)
+  Bj <- n*p["b"] - ((n-1)*B)
+  Cj <- n*p["c"] - ((n-1)*C)
+  Dj <- n*p["d"] - ((n-1)*D)
+  Ej <- n*p["e"] - ((n-1)*E)
+  Fj <- n*p["f"] - ((n-1)*Fn)
+  
+  
+  parmvec <- c(Aj,Bj,Cj,Dj,Ej,Fj)
+  
+  RETURNS <- list(parmvec, parms_mat)
+ return(RETURNS)
+}
+
+
+predict_optim <- function(Predictor, Gom = TRUE, Maxi = 1e5, Maxj = 1e5, dab_conc = 250, sig_loss = 0.95){
+  #Specify half sig loss for optimization 
+  halfloss <- sig_loss + ((1 - sig_loss)/2)
+  #extract maximum conditions from predictor table (input to function)
+  max_dCq <- Predictor$dCq
+  max_dab <- Predictor$Dab
+  max_cab <- Predictor$Cab
+  #Define a Cab optimization incrementor
+  N <- 0.5
+  #define a Dab optimization incrementor
+  M <- 0.9751
+  #initialize step counters to prevent infinite while loops
+  i <- 1
+  j <- 1
+
+  #Optimize under Gompertz EQ
+  if(Gom == TRUE){
+      #optimize Cab
+      new_cab <- max_cab - N #start with optimized cab as max_cab minus incrementor
+      new_predict_cab <- Gom(new_cab,max_dab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"]) #Start with max_dab and new cab
+      while(new_predict_cab > halfloss*max_dCq & i < Maxi){
+        new_cab <- new_cab - N
+        new_predict_cab <- Gom(new_cab,max_dab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+        i <- i+1 #prevent infinite while loop
+      }
+      
+      #Shrink increment of N so the next updated NewPredict is experimentally insignificant: The next cab is the final Cab 
+      if (new_predict_cab < halfloss * max_dCq){
+        N <- N/50 
+        }
+  
+      while(new_predict_cab < halfloss* max_dCq){
+        new_cab <- new_cab + N #climb back up surface equation for cab concentration until dCq is 97.5% of Max
+        new_predict_cab <- Gom(new_cab,max_dab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+        i <- i+1 #prevent infinite while loop
+      }
+      if (i == Maxi){
+        print("Cab optimization exceeded iteration limit!")
+      }
+      #optimize Dab
+      new_dab <- max_dab*M #Start with new_dab 97.5% of max_dab
+      new_predict_dab <- Gom(max_cab,new_dab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+      
+      while (new_predict_dab > halfloss*max_dCq & j < Maxj){
+        new_dab <- new_dab*M
+        new_predict_dab <- Gom(max_cab,new_dab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+        j <- j+1 #prevent infinite while loop
+      }
+      if (new_predict_dab < halfloss * max_dCq){
+        M <- M+ 0.0255#Shrink incriment of M so the next updated NewPredict is experimentally insigniifcant: The next Dab is the final Dab 
+        }
+        
+      while(new_predict_dab < halfloss* max_dCq & j < 1e4){
+        new_dab <- new_dab*M
+        new_predict_dab <- Gom(max_cab,new_dab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+        j <- j+1 #prevent infinite while loop
+      }
+      if (j == Maxj){
+        print("Dab optimization exceeded iteration limit!")
+      }
+      #Check that updated Cab and Dab together do not shrink dCq more than 5%
+      if(Gom(new_cab,new_dab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"]) > sig_loss*max_dCq){
+        cab_final <- new_cab
+        dab_final <- dab_conc/new_dab
+        dCq_final <- Gom(new_cab,new_dab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+        final_table <- data.table::data.table(cab_final,dab_final,dCq_final)
+        #Check max dcq > 6
+        if(final_table$dCq_final < 6){
+          print("Warning Low Max dCq! Model may be poor fit OR target may be difficult to validate!")
+        }
+        print("Optmimization Successful!")
+        return(final_table)
+      } else {
+        cab_final <- max_cab
+        dab_final <- dab_conc/max_dab
+        dCq_final <- Gom(max_cab,max_dab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+        final_table <- data.table::data.table(cab_final,dab_final,dCq_final)
+        if(final_table$dCq_final < 6){
+          print("Warning Low Max dCq! Model may be poor fit OR target may be difficult to validate!")
+        }
+        print("Optmimization unsuccessful, returning original maximum values")
+      }
+    
+    } else {
+      Print("michaelis-menten Equation is not yet supported, restore defulat parameters and resume")
+    }
+}
+  
+```
+
+#Load Data
+```{r}
+data1 <- read.csv("uPAR_NewHatch.csv", fileEncoding = "UTF-8-BOM")
+```
+
+
+
+
+#Run Data Prep 
+```{r}
+
+Data2 <- data_prep(data1, dab_conc = 250)
+
+```
+
+### Data analysis -- Curve fitting ###
+
+# Gompertz Equation
+```{r}
+
+#MODEL EQUATION: dCq =  ((p["a"]*exp(-exp(p["b"]*x))) + (p["c"]*x) + (p["d"]*exp(-exp(p["e"]*y))) + (p["f"]*y))
+
+dcq1 <- Data2$dcq
+cab1 <- Data2$cab
+dab1 <- Data2$dab
+
+d <-data.table::data.table(dcq1,cab1,dab1)
+
+#Define equation
+Gom <- function(x,y,a,b,c,d,e,f){
+  (a*exp(-exp(b*x))) + (c*x) + (d*exp(-exp(e*y))) + (f*y)
+}
+
+
+
+# Standard Estimation
+gom_fit <- surface_fitter(Data2)
+
+
+#Assess fit visually
+plot(nlsResiduals(gom_fit)) #Decent fit should have a q-q plot data points on the diagonal line and autocorrelation plot looking like random noise about 0
+
+#store estimate params in p
+p <- coef(gom_fit)
+
+# #Jacknife estimation/bias correction
+jack_obj <- jack_fitter(Data2, p)
+#rename p to bias corrected estimates
+p <- jack_obj[[1]] # Note: Bias correction can sometimes be too extreme yielding poor results. Most common cause: low quality expiremental data
+
+#store matrix of parameters for confidence interal estimation (incomplete)
+jack_mat <- jack_obj[[2]] 
+
+
+#establish x and y sequence for plot
+xGom <- runif(500 ,0, 12)
+yGom <- runif(500 ,0,  0.8)
+zGom <-  Gom(xGom,yGom,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+
+#data table for equation surface
+table_Gom <- data.table::data.table(xGom,yGom, zGom)
+
+#data table to be plotted for actual data
+table_data <-data.table::data.table(cab1,dab1, dcq1)
+  
+plot3d <- scatterplot3d(table_data, type = "h", color = "blue",
+                        angle = 55, scale.y = 0.7, pch = 16, main = "Gompertz Equation Fit")
+plot3d$points3d(table_Gom)
+
+#higher resolution surface data table for obtaining optimal antibody concentrations
+Gom_cab <- runif(25000 ,0, 12)
+Gom_dab <- runif(25000 ,0,  0.8)
+Gom_dCq <-  Gom(Gom_cab,Gom_dab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+table_Gom_predictor <- data.table::data.table(Gom_cab,Gom_dab,Gom_dCq)
+
+#Check Prediction data (PLots should have some trend. If Q-Q Plots good but these look like random noise or bunch of columns of points, check input data into tables. If Q-Q plot looks poor and this plot has no pattern then model failed. If model failed check data cleaning and raw data, if these look good, model does not work for target)
+plot(table_Gom_predictor$Gom_cab,table_Gom_predictor$Gom_dCq)
+plot(table_Gom_predictor$Gom_dab,table_Gom_predictor$Gom_dCq)
+
+#Obtain prediction 
+table_Gom_predictor <- table_Gom_predictor[order(-table_Gom_predictor$Gom_dCq)]
+Gom_predict <- table_Gom_predictor[which.max(table_Gom_predictor$Gom_dCq),]
+#Rename for PredictOptim
+Gom_predict$Cab <- Gom_predict$Gom_cab
+Gom_predict$Dab <- Gom_predict$Gom_dab
+Gom_predict$dCq <- Gom_predict$Gom_dCq
+
+optimal_prediction <- predict_optim(Gom_predict, sig_loss = 0.95)
+
+optimal_prediction
+
+
+#Uncomment line below to get test predictions for mod tests deviating from optimal prediction: input ug/ml cab and ug/ml dab (250/dilution factor)
+# Gom(2,250/2500, p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+
+```
+
+#Analysis --  Dab/Cab constant Plots 
+```{r}
+#prep data for plots 
+#cab data
+DataCab <- Data2[Data2$dab == 0.0625,]
+DataCab$avrg <- as.numeric(DataCab$avrg)
+DataCab <- DataCab %>%
+  mutate(normCt = 1/avrg)
+DataCab$avrg_0 <- as.numeric(DataCab$avrg_0)
+DataCab <- DataCab %>%
+  mutate(normbkgnd = 1/avrg_0)
+#dab data
+DataDab <- Data2[Data2$cab == 1,]
+DataDab <- DataDab %>%
+  mutate(DabDil = 250/dab)
+DataDab$avrg <- as.numeric(DataDab$avrg)
+DataDab <- DataDab %>%
+  mutate(normCt = 1/avrg)
+DataDab$avrg_0 <- as.numeric(DataDab$avrg_0)
+DataDab <- DataDab %>%
+  mutate(normbkgnd = 1/avrg_0)
+
+#graph background signal for Cab and Dab concentrations -- how is noise changing
+Cab_bkgrd_plot <- ggplot(DataCab, aes(x = cab, y = normbkgnd)) +
+  geom_point() +
+  theme_classic() +
+  ggtitle("Change background  with Capture Antibody Conc") +
+  xlab("Capture antibody in ug/ml") +
+  ylab("Normalized Background CT")
+Cab_bkgrd_plot
+
+Dab_bkgrd_plot <- ggplot(DataDab, aes(x = DabDil, y = normbkgnd)) +
+  geom_point() +
+  theme_classic() +
+  ggtitle("Change background with Detection Antibody Conc") +
+  xlab("Detection antibody silution factor") +
+  ylab("Normalized Background CT")
+Dab_bkgrd_plot
+
+#graph normalized CT values (signal) for delta Cab and Dab concentrations -- how is signal changing
+Cab_sig_plot <- ggplot(DataCab, aes(x = cab, y = normCt)) +
+  geom_point() +
+  theme_classic() +
+  ggtitle("Change in Signal (normalized ct) with Capture Antibody Conc") +
+  xlab("Capture antibody in ug/ml") +
+  ylab("Normalized CT")
+
+Cab_sig_plot
+
+Dab_sig_plot <- ggplot(DataDab, aes(x = DabDil, y = normCt)) +
+  geom_point() +
+  theme_classic() +
+  ggtitle("Change in Signal (normalized ct) with Detection Antibody Conc") +
+  xlab("Detection antibody silution factor") +
+  ylab("Normalized CT")
+Dab_sig_plot
+
+
+#graph dCq for delta Cab and Dab concentrations -- how is normalzed signal changing 
+Cab_dCq_plot <- ggplot(DataCab)+
+  geom_point(aes(x = cab, y = dcq)) +
+  theme_classic() +
+  ggtitle("Change in dCq with Capture Antibody Conc") +
+  xlab("Capture antibody in ug/ml")
+Cab_dCq_plot
+
+
+Dab_dCq_plot <- ggplot(DataDab, aes(x = DabDil, y = dcq))+
+  geom_point() +
+  theme_classic()+
+  ggtitle("Change in dCq with Detection Antibody Conc") +
+  xlab("Detection antibody dilution factor")
+Dab_dCq_plot
+
+
+
+
+
+```
+
+
+
