@@ -38,7 +38,7 @@ R4.0.1
 
 In general, the signal (Ct value when target antigen present), the background (Ct value when no target present), and the normalized final signal (dCq = background Ct – signal Ct) all follow a rough logistic curve. This model uses a modified Gompertz Equation:
 
-delta Cq= αe^(〖-e〗^βX )+γX+δe^(〖-e〗^θY )+μY+ε  ; ε ~ N(0,σ^2,)
+delta Cq= αe^(-e^e^βX )+γX+δe^(-e^e^θY )+μY+ε  ; ε ~ N(0,σ^2,)
 
 Where α and δ control the upper asymptote for the capture and detection antibodies respectively, β, θ are scaling parameters, γ and μ control the effect of false background signal from the capture and detection antibodies respectively, X and Y are respective concentrations of capture and detection antibodies, e is the natural number, and ε is an error term assumed normal with mean 0 and standard deviation σ^2. However, with resampling techniques (here jackknife) ε need not be assumed normal.
 
