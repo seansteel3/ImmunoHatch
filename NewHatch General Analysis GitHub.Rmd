@@ -353,7 +353,7 @@ predict_optim <- function(Predictor, Gom = TRUE, Maxi = 1e5, Maxj = 1e5, dab_con
     }
 }
 
-pareto_optimizer <- function(Data = table_Gom_predictor, plots = TRUE, dab_stock = 250){
+pareto_optimizer <- function(Data = table_Gom_predictor, plots = TRUE, dab_stock = 250, boundary_size = 250){
   print("Preparing data...")
   pareto_table <- Data %>%
     #normalized % of antibodies used (max 10ug/ml capture and 0.833ug/ml detection)
@@ -379,7 +379,7 @@ pareto_optimizer <- function(Data = table_Gom_predictor, plots = TRUE, dab_stock
   
   #init a container for pareto boundary dataframe
   pareto_boundary <- data.frame(matrix(
-    nrow = 250, ncol = 7, 
+    nrow = boundary_size, ncol = 7, 
     dimnames = list(NULL,
                     c("gom_cab", "gom_dab", "Gom_dCq", "minimizer", "signal", "Cab", "Dab"))))
   
