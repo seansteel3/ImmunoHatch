@@ -13,11 +13,12 @@ library(stats)
 library(nlstools) 
 library(tidyverse)
 library(scatterplot3d)
+library(ggpubr)
 ```
 
 #Load Required Functions -- Data Cleaning Function and Prediction Optmizer
 ```{R}
-data_prep <- function(Data, multiple_target = FALSE, dab_conc, delimeter = ";", dab_first = TRUE, dabc = "x", cabc = "ug", sample_dil = "4x") {
+data_prep <- function(Data, multiple_target = FALSE, dab_conc = 250, delimeter = ";", dab_first = TRUE, dabc = "x", cabc = "ug", sample_dil = "4x") {
   if (multiple_target == FALSE) {
     #convert ct values to numeric
     Data$CT <- as.numeric(Data$CT)
@@ -264,7 +265,6 @@ jack_fitter <- function(data,p){
  return(RETURNS)
 }
 
-
 predict_optim <- function(Predictor, Gom = TRUE, Maxi = 1e5, Maxj = 1e5, dab_conc = 250, sig_loss = 0.95){
   #Specify half sig loss for optimization 
   halfloss <- sig_loss + ((1 - sig_loss)/2)
@@ -352,7 +352,133 @@ predict_optim <- function(Predictor, Gom = TRUE, Maxi = 1e5, Maxj = 1e5, dab_con
       Print("michaelis-menten Equation is not yet supported, restore defulat parameters and resume")
     }
 }
+
+pareto_optimizer <- function(Data = table_Gom_predictor, plots = TRUE, dab_stock = 250){
+  print("Preparing data...")
+  pareto_table <- Data %>%
+    #normalized % of antibodies used (max 10ug/ml capture and 0.833ug/ml detection)
+    mutate(minimizer = (((gom_cab/10)+(gom_dab/(dab_stock/300)))/2)) %>% 
+    #normalized signal % of max predicted
+    mutate(signal = Gom_dCq/max(Data$Gom_dCq))  
+
   
+  #Find max antibody to consider
+  max_antibody <- pareto_table[which.max(pareto_table$signal),]$minimizer + 0.05 
+  #only consider antibodies to the left of max signal, and signal greater than 90%
+  consider_table <- pareto_table[pareto_table$minimizer < max_antibody & pareto_table$signal > 0.9,]
+  
+  #prep cab and dab for display of final results
+  consider_table <- consider_table %>%
+    mutate(Cab = round(gom_cab, 2)) %>%
+    mutate(Dab = round(dab_stock/gom_dab,0))
+  
+  #average change between points with respect to signal 
+  signal_inc <- abs(mean(diff(pareto_table$signal)))
+  #average change between points with respect to antibody minimize 
+  minimal_inc <- abs(mean(diff(pareto_table$minimizer)))
+  
+  #init a container for pareto boundary dataframe
+  pareto_boundary <- data.frame(matrix(
+    nrow = 250, ncol = 7, 
+    dimnames = list(NULL,
+                    c("gom_cab", "gom_dab", "Gom_dCq", "minimizer", "signal", "Cab", "Dab"))))
+  
+  #Explore data and generate the Pareto Boundary
+  print("Generating Pareto Boundary (this may take up to 30s)...")
+  for (i in 1:nrow(pareto_boundary)){
+    #pick a random point
+    start <- sample_n(consider_table, 1)
+    check<- TRUE
+    j <- 1
+    while(check == TRUE & j < 1000){
+      #do any points exist that are greater than the signal (by incrementer x2) or less than the minimizer (by incrementer x2)
+      check <- any(consider_table$signal > (start$signal + 2*signal_inc) & consider_table$minimizer < (start$minimizer - 2*minimal_inc))
+      
+      #if check is false, save the point (its on the pareto boundary), if not increment start by 10x the average increments
+      if(check == FALSE){
+        #save point near pareto boundary
+        pareto_boundary[i,] <- start[1,]
+        i <- i+1
+      } else {
+        #set new start point closer to pareto boundary
+        start <- consider_table %>% 
+                filter(signal > (start$signal + 2* signal_inc) & minimizer < (start$minimizer - 2*minimal_inc)) %>%
+                sample_n(.,1, replace = TRUE)
+        j <- j+1
+      }
+    }
+  }
+  
+
+  
+  if(plots == TRUE){
+    print("generating plots...")
+    
+    plot_table <- sample_n(pareto_table, 20000)
+    space_plot <- ggplot(plot_table, aes(x = minimizer, y = signal)) +
+      geom_point() +
+      ggtitle("Normalized Explanatory Space") +
+      xlab("Normalized Antibody Concentration") +
+      theme_classic()
+    
+    consider_plot <- ggplot(consider_table, aes(x = minimizer, y = signal)) +
+      geom_point() +
+      ggtitle("Pareto Front Consideration") +
+      xlab("Normalized Antibody Concentration") +
+      theme_classic()
+
+    boundary_plot <- ggplot(pareto_boundary, aes(x = minimizer, y = signal)) +
+      geom_point() +
+      ggtitle("Pareto Boundry") +
+      xlab("Normalized Antibody Concentration") +
+      theme_classic()
+    
+    #display on one pane
+    plots <- ggarrange(space_plot, consider_plot, boundary_plot)
+  } else {
+    plots <- NA
+  }
+  
+  print("preparing results...")
+  
+  #init suggestion container
+  suggestions <- data.frame(matrix(
+    nrow = 10, ncol = 2, 
+    dimnames = list(NULL,
+                    c("Cab_ug/ml", "Dab_dilution_factor"))))
+  
+  mean_cab <- mean(pareto_boundary$Cab)
+  mean_dab <- mean(pareto_boundary$Dab)
+  min_cab <- min(pareto_boundary$Cab)
+  min_dab <- min(pareto_boundary$Dab)
+  #max signal suggestion
+  suggestions[1,] <- pareto_boundary[which.max(pareto_boundary$signal), c(6,7)]
+  #min antibody suggestion
+  suggestions[2,] <- pareto_boundary[which.min(pareto_boundary$minimizer), c(6,7)]
+  #Closest mean of cab
+  suggestions[3,] <- pareto_boundary[which.min(abs(mean_cab-pareto_boundary$Cab)), c(6,7)]
+  #Closest mean of dab
+  suggestions[4,] <- pareto_boundary[which.min(abs(mean_dab-pareto_boundary$Dab)), c(6,7)]
+  #lowest Cab on front
+  suggestions[5,] <- pareto_boundary[which.min(pareto_boundary$Cab), c(6,7)]
+  #lowest Dab on front
+  suggestions[6,] <- pareto_boundary[which.min(pareto_boundary$Dab), c(6,7)]
+  #random suggestions on pareto front
+  suggestions[c(7:9),] <- sample_n(pareto_boundary[, c(6,7)], 3)
+  #old optimizer value
+  old_prediction <- predict_optim(Gom_predict, sig_loss = 0.95)
+  suggestions[10,] <- old_prediction[1, c(1,2)]
+
+  suggestions[,1] <- round(suggestions[,1], 1)
+  suggestions[,2] <- round(suggestions[,2], 0)
+  
+  print("Complete!")
+  
+  RETURNS <- list(suggestions, plots, pareto_boundary)
+  
+  return(RETURNS)
+}
+
 ```
 
 #Load Data
@@ -381,7 +507,6 @@ dcq1 <- Data2$dcq
 cab1 <- Data2$cab
 dab1 <- Data2$dab
 
-d <-data.table::data.table(dcq1,cab1,dab1)
 
 #Define equation
 Gom <- function(x,y,a,b,c,d,e,f){
@@ -425,27 +550,45 @@ plot3d <- scatterplot3d(table_data, type = "h", color = "blue",
 plot3d$points3d(table_Gom)
 
 #higher resolution surface data table for obtaining optimal antibody concentrations
-Gom_cab <- runif(25000 ,0, 12)
-Gom_dab <- runif(25000 ,0,  0.8)
-Gom_dCq <-  Gom(Gom_cab,Gom_dab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
-table_Gom_predictor <- data.table::data.table(Gom_cab,Gom_dab,Gom_dCq)
+gom_cab <- runif(25000 ,0, 12)
+gom_dab <- runif(25000 ,0,  0.8)
+Gom_dCq <-  Gom(gom_cab,gom_dab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+table_Gom_predictor <- data.table::data.table(gom_cab,gom_dab,Gom_dCq)
 
 #Check Prediction data (PLots should have some trend. If Q-Q Plots good but these look like random noise or bunch of columns of points, check input data into tables. If Q-Q plot looks poor and this plot has no pattern then model failed. If model failed check data cleaning and raw data, if these look good, model does not work for target)
-plot(table_Gom_predictor$Gom_cab,table_Gom_predictor$Gom_dCq)
-plot(table_Gom_predictor$Gom_dab,table_Gom_predictor$Gom_dCq)
+plot(table_Gom_predictor$gom_cab,table_Gom_predictor$Gom_dCq)
+plot(table_Gom_predictor$gom_dab,table_Gom_predictor$Gom_dCq)
 
 #Obtain prediction 
 table_Gom_predictor <- table_Gom_predictor[order(-table_Gom_predictor$Gom_dCq)]
 Gom_predict <- table_Gom_predictor[which.max(table_Gom_predictor$Gom_dCq),]
 #Rename for PredictOptim
-Gom_predict$Cab <- Gom_predict$Gom_cab
-Gom_predict$Dab <- Gom_predict$Gom_dab
+Gom_predict$Cab <- Gom_predict$gom_cab
+Gom_predict$Dab <- Gom_predict$gom_dab
 Gom_predict$dCq <- Gom_predict$Gom_dCq
 
-optimal_prediction <- predict_optim(Gom_predict, sig_loss = 0.95)
+final <- pareto_optimizer()
 
-optimal_prediction
+#pareto boundry plots
+final[[2]]
 
+#top 10 suggestions
+final[[1]]
+
+# Calling the above will display a dataframe with 10 suggestions
+#each row of the data frame corresponds to:
+
+# 1) Max signal
+# 2) Min overall antibody usage
+# 3) closest to mean of Cab on the optimized front
+# 4) closest to mean of Dab on the optimized front
+# 5) Lowest Cab on pareto front (that isn't lowest overall antibody)
+# 6) Lowest Dab on pareto front (that isn't lowest overall anitbody)
+# 7-9) 3 random other suggestions on the optimized front
+# 10) old optimizer value (highly likely to be near pareto front)
+
+#dataframe to manually explore pareto boundary 
+full_suggestions_list <- final[[3]]
 
 #Uncomment line below to get test predictions for mod tests deviating from optimal prediction: input ug/ml cab and ug/ml dab (250/dilution factor)
 # Gom(2,250/2500, p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
