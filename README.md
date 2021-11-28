@@ -46,11 +46,11 @@ Where α and δ control the upper asymptote for the capture and detection antibo
 <!-- Performance -->
 ## Performance
 
-The algorithm has been used to produce over 20 immuno-PCR kits at RayBiotech Life. While lacking formal model testing due to time constraints, it has out preformed 3 existing guess-and-check method immuno-PCRs reducing their LOD by an average of 2.5-fold and matched 2 existing guess-and-check method immuno-PCRs. Further it thus far has underperformed zero guess-and-check developed immuno-PCRs. The model has only failed or produced undesirable results when low quality qPCR data is fed to it OR when the target outright fails to convert from ELISA format to immuno-PCR format. 
+The algorithm has been used to produce over 20 immuno-PCR kits at RayBiotech Life. While lacking formal model testing due to time constraints, it has out preformed 3 existing guess-and-check method immuno-PCRs reducing their LOD by an average of 2.5-fold, and it has matched conditions in 2 existing guess-and-check method immuno-PCRs. Further it thus far has underperformed zero guess-and-check developed immuno-PCRs. The model has only failed or produced undesirable results when low quality qPCR data is fed to it OR when the target outright fails to convert from ELISA format to immuno-PCR format. 
 
-Use of this algorithm has reduced the average number of experiments per target from ~4-5 to ~2-3 and saved subsequent development time and reagent, all the while increasing immuno-PCR kit quality. 
+Use of this algorithm has reduced the average number of experiments per target from ~4-5 to ~2-3 and saved subsequent development time and reagent, all the while increasing immuno-PCR kit quality. Further, the algorithm has proven itself useful when new lots require revalidation since new lots oftentimes require extensive redevelopment. 
 
-Taken together, this algorithm has proven itis value within the workflow it is designed to optimize.
+Overall, this algorithm has proven its value within the workflow it is designed to optimize.
 
 
 <!-- qPCR Set Up and Data Collection -->
