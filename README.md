@@ -30,6 +30,7 @@ R4.0.1
 * [nlstools]
 * [tidyverse]
 * [scatterplot3d]
+* [ggpubr]
 
 
 
@@ -73,7 +74,21 @@ The first chunk contains four required functions that the algorithm uses to buil
   * data_prep: cleans the raw .csv qPCR data to prepare for model fitting. NOTE: this function assumes the dection antibody is specified as a DILUTION factor from a stock of 250ug/ml and assumes the caputure antibody is given as a CONCENTRATION in ug/mL
   * surface_fitter: takes in cleaned data and (currently) fits the Gompertz equation to the data
   * jack_fitter: takes in the parameters from the full data model and undergoes jackknife resampling to estimate bias and create confidence intervals (not yet complete) for the model. NOTE: when 1 or more data points from qPCR data is of low quality or with high standard deviation in dCq the jackknife resampling bias correction is often too extreme and produces poor results. In these cases, removing outliers (not recommended due to data loss) or using the full data model should be done
-  * predict_optim: takes in the predictions from the model and scales back the amount of antibodies used to reduce dCq signal down to 95% (default). When background effect is minimal, the model predicts using a maximum concetration of antibodies, despite the fact increasing antibody concentrations has minimal effect. This function ensures real world resource constraints are met
+  * predict_optim: takes in the predictions from the model and scales back the amount of antibodies used to reduce dCq signal down to 95% (default). When background effect is minimal, the model predicts using a maximum concetration of antibodies, despite the fact increasing antibody concentrations has minimal effect. This function ensures real world resource constraints are met 
+  * pareto_optim(): takes in the fitted gompertz equation dataframe (table_gompredictior) and picks a random point to run a homebrew pareto optimization front algorithm. The algorithm searches upwards on a normalized dCq axis and leftwards on a normalized total antibody axis to find the pareto front (points where onecannot further optimize one axis without sacrificing the other). This function now runs predict_optim() within it as well.
+
+pareto_optim() then displays a dataframe with 10 rows:
+1) Max signal
+2) Min overall antibody usage
+3) closest to mean of Cab on the optimized front
+4) closest to mean of Dab on the optimized front
+5) Lowest Cab on pareto front (that isn't lowest overall antibody)
+6) Lowest Dab on pareto front (that isn't lowest overall anitbody)
+7)  7-9) 3 random other suggestions on the optimized front
+10) old optimizer value (highly likely to be near but not on the pareto front)
+
+And returns two objects, one containing plots of the pareto front, one containting the full pareto front data frame (250 points by default) for further analysis if required. 
+
 
 
 
