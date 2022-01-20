@@ -1,0 +1,832 @@
+---
+title: "NewHatch General Analysis"
+output:
+  pdf_document: default
+  html_document: default
+---
+#load/library packages
+```{r}
+library(stats)
+library(nlstools) # https://www.researchgate.net/publication/282743750_A_Toolbox_for_Nonlinear_Regression_in_R_The_Package_nlstools
+library(tidyr)
+library(dplyr)
+library(scatterplot3d)
+library(ggplot2)
+library(ggpubr)
+```
+
+#Load Required Functions 
+```{R}
+data_prep <- function(Data, multiple_target = FALSE, dab_stock = 250, delimeter = ";", dab_first = TRUE, dabc = "x", cabc = "ug", sample_dil = "4x") {
+  Data <- Data[,c(1:3)]
+  colnames(Data) <- c("sample", "ab", "ct")
+  if (multiple_target == FALSE) {
+    #display warning if not enough data due to undetermiend Ct's
+    if(sum(data1$CT == "Undetermined") > 1){
+      print("WARNING! High number of undetermined values! Check cycle times and data integrity. Model may not converge!")
+    }
+    
+    #convert ct values to numeric
+    Data$ct <- as.numeric(Data$ct)
+    
+    #split datasets into signal set and background (0) set
+    data2_0 <- Data[Data$sample == "0",]
+    data2_Sig <- Data[Data$sample == sample_dil,]
+    
+    #get average ct values 
+    data2_0 <- data2_0 %>%
+      group_by(sample, ab) %>%
+      mutate(avrg = mean(ct, na.rm = T))
+    
+    data2_Sig <- data2_Sig %>%
+      group_by(sample, ab) %>%
+      mutate(avrg = mean(ct, na.rm = T))
+    
+    #obtain dcq
+    data3 <- data2_Sig
+    
+    data3$dcq <- data2_0$avrg - data2_Sig$avrg 
+    
+    #rename signal and add noise ct
+    rename(data3, avrg_sig = avrg)
+    
+    data3$avrg_0 <- data2_0$ct
+    
+    #remove redundant "ct" and "sample" variable 
+    data3 <- data3 %>%
+      select(-c(ct, sample))
+    
+    #split ab info column into two with cab concentration and dab concentration
+    if(dab_first == TRUE){
+      data3 <- separate(data3, col = ab,
+                        into = c("dab", "cab"),
+                        sep = delimeter)
+      
+      #remove ug from Cab, and convert to numeric
+      data3[] <- lapply(data3, gsub, 
+                        pattern = cabc,
+                        replacement = '')
+      data3$cab <- as.numeric(data3$cab)
+      
+      #remove x from Dab, and convert to numeric
+      data3[] <- lapply(data3, gsub, 
+                        pattern = dabc,
+                        replacement = '')
+      
+      data3$dab <- as.numeric(data3$dab)
+      
+      #convert dab into concentration
+      data3$dab <- dab_stock/data3$dab
+      
+      data3$dab <-as.numeric(data3$dab)
+      data3$cab <-as.numeric(data3$cab)
+      data3$dcq <-as.numeric(data3$dcq)
+      
+      #Remove duplicated rows from method of obtaining dcq data
+      data3<- data3[duplicated(data3$dcq)==FALSE,]
+    } else{
+      #do all the above again but with cab first
+      data3 <- separate(data3, col = ab,
+                        into = c("cab", "dab"),
+                        sep = delimeter)
+      
+      #remove ug from Cab, and convert to numeric
+      data3[] <- lapply(data3, gsub, 
+                        pattern = cabc,
+                        replacement = '')
+      data3$cab <- as.numeric(data3$cab)
+      
+      #remove x from Dab, and convert to numeric
+      data3[] <- lapply(data3, gsub, 
+                        pattern = dabc,
+                        replacement = '')
+      
+      data3$dab <- as.numeric(data3$dab)
+      
+      #convert dab into concentration
+      data3$dab <- dab_stock/data3$dab
+      
+      data3$dab <-as.numeric(data3$dab)
+      data3$cab <-as.numeric(data3$cab)
+      data3$dcq <-as.numeric(data3$dcq)
+      
+      #Remove duplicated rows from method of obtaining dcq data extremely
+      data3<- data3[duplicated(data3$dcq)==FALSE,]
+    }
+    
+    if(data3$dcq[which.max(data3$dcq)] < 5 & (data3$dcq[which.max(data3$dcq)] > 3)){
+      print("WARNING! Low max dCq! Model may not converge or may produce strange results! Poor expiremental data quality OR difficult to validate target may be the cause!")
+    }
+
+    if(data3$dcq[which.max(data3$dcq)] < 3){
+      print("WARNING! Extremely low dCq! DO NOT use the model OR the graphs! Rerun the expirement, if problem persists abandon target!")
+    }
+    
+    return(data3)
+    
+  } else {
+    print("Multiple targets not currently supported")
+  }
+}
+
+jack_fitter <- function(data,p=NA, refit_size = "normal"){
+  #init matrix to hold parameters
+  N_nrow <- nrow(data)
+  parms_mat <- data.table::data.table(a = as.numeric(rep(NA,N_nrow)), b = as.numeric(rep(NA,N_nrow)), 
+                                      c = as.numeric(rep(NA,N_nrow)), d = as.numeric(rep(NA,N_nrow)), 
+                                      e = as.numeric(rep(NA,N_nrow)), f = as.numeric(rep(NA,N_nrow)))
+  #Leave one out resampling estimation
+  for (i in 1:nrow(Data2)){
+    #leave one out sequentially 
+    data3 <- Data2
+    data3[i,] <- NA
+    
+    ## Fit resampled Model ##
+    gom_fit1 <- try(surface_fitter(data3, verbose = FALSE, refit_size = refit_size), silent = TRUE)
+    
+    #Store parameter result so long as it exists
+    if(is.atomic(gom_fit1) == FALSE){
+      storer <- coef(gom_fit1)
+    } else {
+      storer <- NA
+    }
+    parms_mat[i,1] <- storer[1]
+    parms_mat[i,2] <- storer[2]
+    parms_mat[i,3] <- storer[3]
+    parms_mat[i,4] <- storer[4]
+    parms_mat[i,5] <- storer[5]
+    parms_mat[i,6] <- storer[6]
+    
+    print(i)
+  }
+  
+  #Leave one out parameters
+  A <- mean(parms_mat$a, na.rm = T)
+  B <- mean(parms_mat$b, na.rm = T)
+  C <- mean(parms_mat$c, na.rm = T)
+  D <- mean(parms_mat$d, na.rm = T)
+  E <- mean(parms_mat$e, na.rm = T)
+  Fn <- mean(parms_mat$f, na.rm = T)
+  
+  if(!is.na(p)){ #if parameter vector p is given, correct the bias of p
+    #Number of samples
+    n <- nrow(data)
+    #bias corrected parameters -- bias correction often is too extreme and can break models!
+    Aj <- n*p["a"] - ((n-1)*A)
+    Bj <- n*p["b"] - ((n-1)*B)
+    Cj <- n*p["c"] - ((n-1)*C)
+    Dj <- n*p["d"] - ((n-1)*D)
+    Ej <- n*p["e"] - ((n-1)*E)
+    Fj <- n*p["f"] - ((n-1)*Fn)
+    
+    
+    parmvec <- c(Aj,Bj,Cj,Dj,Ej,Fj)
+    names(parmvec) <- c("a","b","c","d", "e", "f")
+    
+  } else { #no parameter vector p, use jackknife parameters
+    parmvec <- c(A,B,C,D,E,Fn)
+    names(parmvec) <- c("a","b","c","d", "e", "f")
+  }
+  
+  RETURNS <- list(parmvec, parms_mat) #return the  final parameter vector and the matrix of all parameter vectors for each resampling
+  
+  return(RETURNS)
+}
+
+predict_optim <- function(Predictor, Gom = TRUE, Maxi = 1e5, Maxj = 1e5, dab_stock = 250, sig_loss = 0.95){
+  #Specify half sig loss for optimization 
+  halfloss <- sig_loss + ((1 - sig_loss)/2)
+  #extract maximum conditions from predictor table (input to function)
+  MaxdCq <- Predictor$dCq
+  MaxDab <- Predictor$Dab
+  MaxCab <- Predictor$Cab
+  #Define a Cab optimization incrementor
+  N <- 0.5
+  #define a Dab optimization incrementor
+  M <- 0.9751
+  #initialize step counters to prevent infinite while loops
+  i <- 1
+  j <- 1
+  
+  #Optimize under Gompertz EQ
+  if(Gom == TRUE){
+    #optimize Cab
+    NewCab <- MaxCab - N #start with optimized cab as maxcab minus incrementor
+    NewPredictCab <- Gom(NewCab,MaxDab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"]) #Start with maxdab and new cab
+    while(NewPredictCab > halfloss*MaxdCq & i < Maxi){
+      NewCab <- NewCab - N
+      NewPredictCab <- Gom(NewCab,MaxDab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+      i <- i+1 #prevent infinite while loop
+    }
+    
+    #Shrink increment of N so the next updated NewPredict is experimentally insignificant: The next cab is the final Cab 
+    if (NewPredictCab < halfloss * MaxdCq){
+      N <- N/50 
+    }
+    
+    while(NewPredictCab < halfloss* MaxdCq){
+      NewCab <- NewCab + N #climb back up surface equation for cab concentration until dCq is 97.5% of Max
+      NewPredictCab <- Gom(NewCab,MaxDab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+      i <- i+1 #prevent infinite while loop
+    }
+    if (i == Maxi){
+      print("Cab optimization exceeded iteration limit!")
+    }
+    #optimize Dab
+    NewDab <- MaxDab*M #Start with newDab 97.5% of maxDab
+    NewPredictD <- Gom(MaxCab,NewDab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+    
+    while (NewPredictD > halfloss*MaxdCq & j < Maxj){
+      NewDab <- NewDab*M
+      NewPredictD <- Gom(MaxCab,NewDab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+      j <- j+1 #prevent infinite while loop
+    }
+    if (NewPredictD < halfloss * MaxdCq){
+      M <- M+ 0.0255#Shrink increment of M so the next updated NewPredict is experimentally insignificant: The next Dab is the final Dab 
+    }
+    
+    while(NewPredictD < halfloss* MaxdCq & j < 1e4){
+      NewDab <- NewDab*M
+      NewPredictD <- Gom(MaxCab,NewDab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+      j <- j+1 #prevent infinite while loop
+    }
+    if (j == Maxj){
+      print("Dab optimization exceeded iteration limit!")
+    }
+    #Check that updated Cab and Dab together do not shrink dCq more than 5%
+    if(Gom(NewCab,NewDab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"]) > sig_loss*MaxdCq){
+      CabFinal <- NewCab
+      DabFinal <- dab_stock/NewDab
+      dCqFinal <- Gom(NewCab,NewDab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+      final_table <- data.table::data.table(CabFinal,DabFinal,dCqFinal)
+      #Check max dcq > 6
+      if(final_table$dCqFinal < 6){
+        print("Warning Low Max dCq! Model may be poor fit OR target may be difficult to validate!")
+      }
+      print("Optmimization Successful!")
+      return(final_table)
+    } else {
+      CabFinal <- MaxCab
+      DabFinal <- dab_stock/MaxDab
+      dCqFinal <- Gom(MaxCab,MaxDab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+      final_table <- data.table::data.table(CabFinal,DabFinal,dCqFinal)
+      if(final_table$dCqFinal < 6){
+        print("Warning Low Max dCq! Model may be poor fit OR target may be difficult to validate!")
+      }
+      print("Optmimization unsuccessful, returning original maximum values")
+    }
+    
+  } else {
+    Print("michaelis-menten Equation is not yet supported, restore defulat parameters and resume")
+  }
+}
+
+surface_fitter <- function(data, equation = Gom, verbose = TRUE, refit_size = "normal",  mat_size = 100, refit = FALSE, Top1 = 15, Top2 = 5, Bottom1 = 15){
+  #extract vectors for data fitting
+  dcq1 <- data$dcq
+  cab1 <- data$cab
+  dab1 <- data$dab
+  
+  #populate an initial conditions guess matrix
+  A <- runif(mat_size, 0, Top1)
+  B <- runif(mat_size, -Top2, Top2)
+  C <- runif(mat_size, -Bottom1, 1)
+  D <- runif(mat_size, 0, Top1)
+  E <- runif(mat_size, -Top2, Top2)
+  Fn <- runif(mat_size, -Bottom1, 1)
+  
+  #populate an initial value guess matrix and an empty list to store fitted curves
+  guess_mat <- data.table::data.table(A,B,C,D,E,Fn)
+  gom_fit_list <- vector(mode = "list", length = nrow(guess_mat))
+  
+  #Fit equation 
+  for (i in 1:nrow(guess_mat)){
+    #attempt to fit curve for given starting condition, store if gradient is non-singular 
+    gom_fit_list[[i]] <- try(nls(dcq1 ~ equation(cab1, dab1, a,b,c,d,e,f), start = list(a=guess_mat$A[i],b=guess_mat$B[i],c=guess_mat$C[i],d=guess_mat$D[i],e=guess_mat$E[i],f=guess_mat$Fn[i])), silent = TRUE)
+    #Drop singular gradient results
+    if (gom_fit_list[[i]][1] == "Error in nls(dcq1 ~ Gom(cab1, dab1, a, b, c, d, e, f), start = list(a = guess_mat$A[i],  : \n  singular gradient\n"){
+      gom_fit_list[[i]] <- NA
+    }
+  }
+  
+  #Drop all Atomic lists (the remainder of failed convergence models)
+  
+  for (i in 1:length(gom_fit_list)){
+    if (is.atomic(gom_fit_list[[i]]) == TRUE){
+      gom_fit_list[[i]] <- NA
+    } else {
+      gom_fit_list[[i]] <- gom_fit_list[[i]]
+    }
+  }
+  
+  #Drop all NA
+  gom_fit_list <- gom_fit_list[!is.na(gom_fit_list)]
+  
+  if(verbose == TRUE){
+    if(length(gom_fit_list) > 0 ){
+      print("Solutions found!")
+    } else {
+      print("Model convergence failure!")
+    }
+  }
+  
+  #Drop extraneous solutions (negative a and d parameters)
+  for (i in 1:length(gom_fit_list)){
+    if (coef(gom_fit_list[[i]])[1] < 0 || coef(gom_fit_list[[i]])[4] < 0){
+      gom_fit_list[[i]] <- NA
+    }
+  }
+  
+  #Drop all NA
+  gom_fit_list <- gom_fit_list[!is.na(gom_fit_list)]
+  
+  if(verbose == TRUE){
+    if(length(gom_fit_list) > 0 ){
+      print("Solutions are Plausible!")
+    } else {
+      print("Model convergence failure: No real solutions!")
+    }
+  }
+  
+  
+  #Populate a vector for sum of squared residuals, then pick model with lowest SSR
+  if(length(gom_fit_list) > 0){
+    
+    SSR_vector <-vector(mode = "numeric")
+    for (i in 1:length(gom_fit_list)){
+      SSR_vector[i] <-sum(gom_fit_list[[i]]$m$resid()^2)
+    }
+    #Pick model with lowest SSR
+    gom_fit <- gom_fit_list[[which.min(SSR_vector)]]
+  } else (
+    gom_fit <- NA
+  )
+  
+  #Retry surface fitting with more robust initial matrix if first attempt fails
+  if(length(gom_fit_list) < 1 & refit == FALSE){
+    print("Expanding initial conditions; reattempting to fit model.")
+    #establish refitting conditions: normal or extreme
+    if(refit_size == "normal"){
+      MATSIZE <- 1500
+      TOP1 = 30
+      TOP2 = 15
+      BOTTOM1 = 30
+    } else {
+      MATSIZE <- 7500
+      TOP1 = 40
+      TOP2 = 20
+      BOTTOM1 = 40
+    }
+    gom_fit <- surface_fitter(data = data, equation = equation, verbose = TRUE, mat_size = MATSIZE, refit = TRUE, Top1 = TOP1, Top2 = TOP2, Bottom1 = BOTTOM1)
+  } else {
+    gom_fit <- gom_fit
+  }
+  
+  return(gom_fit)
+}
+pareto_optimizer <- function(Data = table_gom_predictor, plots = TRUE, dab_stock = 250, density = 250){
+  print("Preparing data...")
+  pareto_table <- Data %>%
+    #normalized % of antibodies used (max 10ug/ml capture and 0.833ug/ml (300x) detection)
+    mutate(norm_antibody = (((Gom_Cab/10)+(Gom_Dab/(dab_stock/300)))/2)) %>% 
+    #normalized signal % of max predicted
+    mutate(signal = Gom_dCq/max(Data$Gom_dCq))  
+
+  
+  #Find max antibody to consider
+  max_antibody <- pareto_table[which.max(pareto_table$signal),]$norm_antibody + 0.05 
+  min_antibody <- pareto_table$norm_antibody > 0.001
+  #only consider antibodies to the left of max signal, and signal greater than 90%
+  consider_table <- pareto_table[pareto_table$norm_antibody < max_antibody & pareto_table$signal > 0.9,]
+  
+  #prep cab and dab for display of final results
+  consider_table <- consider_table %>%
+    mutate(Cab = round(Gom_Cab, 2)) %>%
+    mutate(Dab = round(dab_stock/Gom_Dab,0))
+  
+  #average change between points with respect to signal 
+  signal_inc <- abs(mean(diff(pareto_table$signal)))
+  #average change between points with respect to antibody minimize 
+  ab_inc <- abs(mean(diff(pareto_table$norm_antibody)))
+  
+  #init a container for pareto boundary dataframe
+  pareto_boundary <- data.frame(matrix(
+    nrow = density, ncol = 7, 
+    dimnames = list(NULL,
+                    c("Gom_Cab", "Gom_Dab", "Gom_dCq", "norm_antibody", "signal", "Cab", "Dab"))))
+  
+  #Explore data and generate the Pareto Boundary
+  print("Generating Pareto Boundary (this may take up to 30s)...")
+  for (i in 1:nrow(pareto_boundary)){
+    #pick a random point
+    start <- sample_n(consider_table, 1)
+    check<- TRUE
+    j <- 1
+    while(check == TRUE & j < 1000){
+      #do any points exist that are greater than the signal (by incrementer x2) or less than the norm_antibody (by incrementer x2) IE: Are there any points between this random one and the pareto boundary
+      check <- any(consider_table$signal > (start$signal + 2*signal_inc) & consider_table$norm_antibody < (start$norm_antibody - 2*ab_inc))
+      
+      #if check is false, save the point (its on the pareto boundary), if not increment start by 2x the average increments
+      if(check == FALSE){
+        #save point near pareto boundary
+        pareto_boundary[i,] <- start[1,]
+        #move on to the next random start point
+        i <- i+1
+      } else {
+        #set new start point closer to pareto boundary
+        start <- consider_table %>% 
+                filter(signal > (start$signal + 2* signal_inc) & norm_antibody < (start$norm_antibody - 2*ab_inc)) %>%
+                sample_n(.,1, replace = TRUE)
+        j <- j+1
+      }
+    }
+  }
+  
+
+  
+  if(plots == TRUE){
+    print("generating plots...")
+    
+    plot_table <- sample_n(pareto_table, 20000)
+    space_plot <- ggplot(plot_table, aes(x = norm_antibody, y = signal)) +
+      geom_point() +
+      ggtitle("Normalized Explanatory Space") +
+      xlab("Normalized Antibody Concentration") +
+      theme_classic()
+    
+    consider_plot <- ggplot(consider_table, aes(x = norm_antibody, y = signal)) +
+      geom_point() +
+      ggtitle("Pareto Front Consideration") +
+      xlab("Normalized Antibody Concentration") +
+      theme_classic()
+
+    boundary_plot <- ggplot(pareto_boundary, aes(x = norm_antibody, y = signal)) +
+      geom_point() +
+      ggtitle("Pareto Boundry") +
+      xlab("Normalized Antibody Concentration") +
+      theme_classic()
+    
+    #display on one pane
+    plots <- ggarrange(space_plot, consider_plot, boundary_plot)
+  } else {
+    plots <- NA
+  }
+  
+  print("preparing results...")
+  
+  #init suggestion container
+  suggestions <- data.frame(matrix(
+    nrow = 10, ncol = 2, 
+    dimnames = list(NULL,
+                    c("Cab_ug/ml", "Dab_dilution_factor"))))
+  
+  mean_cab <- mean(pareto_boundary$Cab)
+  mean_dab <- mean(pareto_boundary$Dab)
+  min_cab <- min(pareto_boundary$Cab)
+  min_dab <- min(pareto_boundary$Dab)
+  #max signal suggestion
+  suggestions[1,] <- pareto_boundary[which.max(pareto_boundary$signal), c(6,7)]
+  #min antibody suggestion
+  suggestions[2,] <- pareto_boundary[which.min(pareto_boundary$norm_antibody), c(6,7)]
+  #Closest mean of cab
+  suggestions[3,] <- pareto_boundary[which.min(abs(mean_cab-pareto_boundary$Cab)), c(6,7)]
+  #Closest mean of dab
+  suggestions[4,] <- pareto_boundary[which.min(abs(mean_dab-pareto_boundary$Dab)), c(6,7)]
+  #lowest Cab on front
+  suggestions[5,] <- pareto_boundary[which.min(pareto_boundary$Cab), c(6,7)]
+  #lowest Dab on front
+  suggestions[6,] <- pareto_boundary[which.max(pareto_boundary$Dab), c(6,7)]
+  #random suggestions on pareto front
+  suggestions[c(7:9),] <- sample_n(pareto_boundary[, c(6,7)], 3)
+  #old optimizer value
+  old_prediction <- predict_optim(gom_predict, sig_loss = 0.95, dab_stock = dab_stock)
+  suggestions[10,] <- old_prediction[1, c(1,2)]
+
+  suggestions[,1] <- round(suggestions[,1], 1)
+  suggestions[,2] <- round(suggestions[,2], 0)
+  
+  print("Complete!")
+  
+  RETURNS <- list(suggestions, plots, pareto_boundary)
+  
+  return(RETURNS)
+}
+hampel_filter <- function(data, deviations = 3){
+  #drop NA rows
+  data <- na.omit(data)
+  rownames(data) = c(1:nrow(data))
+  #create dataframe to hold upper and lower bounds
+  bounds <- data.frame(matrix(ncol = 2, nrow = 6))
+  
+  #provide column names
+  colnames(bounds) <- c('lower', 'upper')
+
+  #define upper and lower bounds for each parameter (a =1, f= 6)
+  for (i in 1:6){
+    bounds$lower[i] <- median(data[,i]) - deviations*mad(data[,i])
+    bounds$upper[i] <- median(data[,i]) + deviations*mad(data[,i])
+  } 
+  
+  #Flag which parts of the jackknife data frame are possible outliers in
+  # a or d or (b and c) or (e and f)
+  data$flag <- NA
+  for (i in 1:nrow(data)){
+    if(data[i,1] < bounds[1,1] | data[i,1] > bounds[1,2] | #is parameter a out of bounds
+        data[i,4] < bounds[4,1] | data[i,4] > bounds[4,2] | #is parameter d out of bounds
+        (data[i,2] < bounds[2,1] & data[i,3] < bounds[3,1]) | (data[i,2] > bounds[2,2] & data[i,3] > bounds[3,2]) | #is parameter b/c out of bounds
+        (data[i,5] < bounds[5,1] & data[i,6] < bounds[6,1]) | (data[i,5] > bounds[5,2] & data[i,6] > bounds[6,2]) == TRUE){ #is parameter e/f out of bounds
+     data$flag[i] <- "Possible Outlier"
+    } else {
+          data$flag[i] <- "Not Likely an Outlier"
+        }
+  }
+
+  return(data)
+}
+```
+
+
+#Load Data
+```{r}
+data1 <- read.csv("FABP3_NewHatch.csv", fileEncoding = "UTF-8-BOM")
+```
+
+#Run Data Prep 
+```{r}
+#if the concentration of the detection antibody is NOT 250ug/ml, change this arguement
+DAB_STOCK <- 250
+Data2 <- data_prep(data1, dab_stock = DAB_STOCK)
+```
+
+### Data analysis -- Curve fitting ###
+
+# Gompertz Equation
+```{r}
+#MODEL EQUATION: dCq =  ((p["a"]*exp(-exp(p["b"]*x))) + (p["c"]*x) + (p["d"]*exp(-exp(p["e"]*y))) + (p["f"]*y))
+
+dcq1 <- Data2$dcq
+cab1 <- Data2$cab
+dab1 <- Data2$dab
+
+#d <-data.table::data.table(dcq1,cab1,dab1)
+
+#Define equation
+Gom <- function(x,y,a,b,c,d,e,f){
+  (a*exp(-exp(b*x))) + (c*x) + (d*exp(-exp(e*y))) + (f*y)
+}
+
+
+# Standard Estimation
+#set refit_size = "extreme" to increase chances of finding a solution. NOTE: when set to extreme, the re-fitter will be SLOW!
+gom_fit <- surface_fitter(Data2, refit_size = "normal")
+
+#Assess fit visually
+try(plot(nlsResiduals(gom_fit))) #Decent fit should have a q-q plot data points on the diagonal line and autocorrelation plot looking like random noise about 0
+
+#store estimate params in p
+p <- try(coef(gom_fit))
+
+#establish x and y sequence for plot
+xGom <- runif(500 ,0, 12)
+yGom <- runif(500 ,0,  0.8)
+zGom <-  Gom(xGom,yGom,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+
+#data table for equation surface
+table_gom <- data.table::data.table(xGom,yGom, zGom)
+
+#data table to be plotted for actual data
+table_data <-data.table::data.table(cab1,dab1, dcq1)
+
+plot3d <- scatterplot3d(table_data, type = "h", color = "blue",
+                        angle = 55, scale.y = 0.7, pch = 16, main = "Gompertz Equation Fit")
+plot3d$points3d(table_gom)
+
+#higher resolution surface data table for obtaining optimal antibody concentrations
+Gom_Cab <- runif(250000 ,0, 12)
+Gom_Dab <- runif(250000 ,0,  0.8)
+Gom_dCq <-  Gom(Gom_Cab,Gom_Dab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+table_gom_predictor <- data.table::data.table(Gom_Cab,Gom_Dab,Gom_dCq)
+
+#drop all zero antibody predictions
+table_gom_predictor <- table_gom_predictor[table_gom_predictor$Gom_Cab > 0.1,]
+table_gom_predictor <- table_gom_predictor[table_gom_predictor$Gom_Dab >  0.00125,]
+
+#Check Prediction data (PLots should have some trend. If Q-Q Plots good but these look like random noise or bunch of columns of points, check input data into tables. If Q-Q plot looks poor and this plot has no pattern then model failed. If model failed check data cleaning and raw data, if these look good, model does not work for target)
+plot(table_gom_predictor$Gom_Cab,table_gom_predictor$Gom_dCq)
+plot(table_gom_predictor$Gom_Dab,table_gom_predictor$Gom_dCq)
+
+#Obtain prediction 
+table_gom_predictor <- table_gom_predictor[order(-table_gom_predictor$Gom_dCq)]
+gom_predict <- table_gom_predictor[which.max(table_gom_predictor$Gom_dCq),]
+#Rename for predict_optim
+gom_predict$Cab <- gom_predict$Gom_Cab
+gom_predict$Dab <- gom_predict$Gom_Dab
+gom_predict$dCq <- gom_predict$Gom_dCq
+
+#This new optimizer finds and builds a Pareto optimized boundary, returning the whole boundary as well as 10 suggestions described below. The Pareto boundary is the boundary where one parameter can not be improved without sacrificing another parameter. In this case the two parameters are: signal (dCq) and overall antibody usage (Cab and Dab combined), both normalized between 0 and 1.
+
+final <- pareto_optimizer(dab_stock = DAB_STOCK)
+
+#pareto boundry plots
+final[[2]]
+
+#top 10 suggestions
+final[[1]]
+
+# Calling the above will display a dataframe with 10 suggestions
+#each row of the data frame corresponds to:
+
+# 1) Max signal
+# 2) Min overall antibody usage
+# 3) closest to mean of Cab on the optimized front
+# 4) closest to mean of Dab on the optimized front
+# 5) Lowest Cab on pareto front (that isn't lowest overall antibody)
+# 6) Lowest Dab on pareto front (that isn't lowest overall anitbody)
+# 7-9) 3 random other suggestions on the optimized front
+# 10) old optimizer value (highly likely to be near pareto front)
+
+#dataframe to manually explore pareto boundary 
+full_suggestions_list <- final[[3]]
+```
+
+
+#Analysis --  Dab/Cab constant Plots 
+```{r}
+dab_stock <- DAB_STOCK
+#prep data for plots 
+#cab data
+DataCab <- Data2[Data2$dab == dab_stock/4000,]
+DataCab$avrg <- as.numeric(DataCab$avrg)
+DataCab <- DataCab %>%
+  mutate(normCt = 1/avrg)
+DataCab$avrg_0 <- as.numeric(DataCab$avrg_0)
+DataCab <- DataCab %>%
+  mutate(normbkgnd = 1/avrg_0)
+#dab data
+DataDab <- Data2[Data2$cab == 1,]
+DataDab <- DataDab %>%
+  mutate(DabDil = dab_stock/dab)
+DataDab$avrg <- as.numeric(DataDab$avrg) #Heh Heh. Line 666 is for the devil
+DataDab <- DataDab %>%
+  mutate(normCt = 1/avrg)
+DataDab$avrg_0 <- as.numeric(DataDab$avrg_0)
+DataDab <- DataDab %>%
+  mutate(normbkgnd = 1/avrg_0)
+
+#graph background signal for Cab and Dab concentrations -- how is noise changing
+Cab_bkgrd_plot <- ggplot(DataCab, aes(x = cab, y = normbkgnd)) +
+  geom_point() +
+  theme_classic() +
+  ggtitle("Change background  with Capture Antibody Conc") +
+  xlab("Capture antibody in ug/ml") +
+  ylab("Normalized Background CT")
+Cab_bkgrd_plot
+
+Dab_bkgrd_plot <- ggplot(DataDab, aes(x = DabDil, y = normbkgnd)) +
+  geom_point() +
+  theme_classic() +
+  ggtitle("Change background with Detection Antibody Conc") +
+  xlab("Detection antibody silution factor") +
+  ylab("Normalized Background CT")
+Dab_bkgrd_plot
+
+#graph normalized CT values (signal) for delta Cab and Dab concentrations -- how is signal changing
+Cab_sig_plot <- ggplot(DataCab, aes(x = cab, y = normCt)) +
+  geom_point() +
+  theme_classic() +
+  ggtitle("Change in Signal (normalized ct) with Capture Antibody Conc") +
+  xlab("Capture antibody in ug/ml") +
+  ylab("Normalized CT")
+
+Cab_sig_plot
+
+Dab_sig_plot <- ggplot(DataDab, aes(x = DabDil, y = normCt)) +
+  geom_point() +
+  theme_classic() +
+  ggtitle("Change in Signal (normalized ct) with Detection Antibody Conc") +
+  xlab("Detection antibody silution factor") +
+  ylab("Normalized CT")
+Dab_sig_plot
+
+
+#graph dCq for delta Cab and Dab concentrations -- how is normalzed signal changing 
+Cab_dCq_plot <- ggplot(DataCab)+
+  geom_point(aes(x = cab, y = dcq)) +
+  theme_classic() +
+  ggtitle("Change in dCq with Capture Antibody Conc") +
+  xlab("Capture antibody in ug/ml")
+Cab_dCq_plot
+
+
+Dab_dCq_plot <- ggplot(DataDab, aes(x = DabDil, y = dcq))+
+  geom_point() +
+  theme_classic()+
+  ggtitle("Change in dCq with Detection Antibody Conc") +
+  xlab("Detection antibody dilution factor")
+Dab_dCq_plot
+
+```
+
+
+
+# Jackknife Resampler trouble shooting -- edit the code as desired then run whole chunk
+```{r}
+#Check Class of p - if "try-error" model failed if "numeric" model did not fail 
+class(p)
+
+# #Jacknife estimation (Currently incomplete, but yields robust result. EXTREMLY USEFUL FOR TROUBLESHOOTING.)
+
+#set refit_size = "extreme" to increase chances of finding a solution. NOTE: when set to extreme, the re-fitter will be SLOW! With jackknife it will be VERY slow!
+if(class(p) == "try-error"){
+  jack_obj <- jack_fitter(Data2, refit_size = "normal") #if model failed do not update p
+} else{
+  jack_obj <- jack_fitter(Data2, p, refit_size = "normal") #if model did not fail, update p
+}
+
+#rename p to bias corrected estimates
+P <- jack_obj[[1]] 
+jack_mat <- as.data.frame(jack_obj[[2]])
+
+p<-P
+
+### Trouble shooting option #3 dry code -- uncomment (highlight code and hit ctrl shift c or manually delete the # in front of code lines) and edit to use ###
+
+# #add Hampel filter to jackknife parameter matrix
+
+jack_mat <- hampel_filter(jack_mat, deviations = 3)
+
+# #Drop outlier rows -- recommended to drop 1 at a time unless there are 2 distinct groups
+jack_mat[1,] <- NA #replace X with the row number which is an outlier
+
+# # Drop multiple, replace the x with c(range) ex: drop rows 1,3,4,5,6 jack_mat[c(1,3:6),] <- NA
+# #reassign the vector p with new jackknife parameters
+
+ p <- colMeans(jack_mat[,c(1:6)], na.rm = TRUE)
+
+##################### Only edit above this line #####################
+
+#establish x and y sequence for plot
+xGom <- runif(500 ,0, 12)
+yGom <- runif(500 ,0,  0.8)
+zGom <-  Gom(xGom,yGom,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+
+#data table for equation surface
+table_gom <- data.table::data.table(xGom,yGom, zGom)
+
+#data table to be plotted for actual data
+table_data <-data.table::data.table(cab1,dab1, dcq1)
+
+plot3d <- scatterplot3d(table_data, type = "h", color = "blue",
+                        angle = 55, scale.y = 0.7, pch = 16, main = "Gompertz Equation Fit")
+plot3d$points3d(table_gom)
+
+#higher resolution surface data table for obtaining optimal antibody concentrations
+Gom_Cab <- runif(250000 ,0, 12)
+Gom_Dab <- runif(250000 ,0,  0.8)
+Gom_dCq <-  Gom(Gom_Cab,Gom_Dab,p["a"],p["b"],p["c"],p["d"],p["e"],p["f"])
+table_gom_predictor <- data.table::data.table(Gom_Cab,Gom_Dab,Gom_dCq)
+
+#drop all zero antibody predictions
+table_gom_predictor <- table_gom_predictor[table_gom_predictor$Gom_Cab > 0.1,]
+table_gom_predictor <- table_gom_predictor[table_gom_predictor$Gom_Dab >  0.00125,]
+
+#Check Prediction data (PLots should have some trend. If Q-Q Plots good but these look like random noise or bunch of columns of points, check input data into tables. If Q-Q plot looks poor and this plot has no pattern then model failed. If model failed check data cleaning and raw data, if these look good, model does not work for target)
+plot(table_gom_predictor$Gom_Cab,table_gom_predictor$Gom_dCq)
+plot(table_gom_predictor$Gom_Dab,table_gom_predictor$Gom_dCq)
+
+#Obtain prediction 
+table_gom_predictor <- table_gom_predictor[order(-table_gom_predictor$Gom_dCq)]
+gom_predict <- table_gom_predictor[which.max(table_gom_predictor$Gom_dCq),]
+#Rename for predict_optim
+gom_predict$Cab <- gom_predict$Gom_Cab
+gom_predict$Dab <- gom_predict$Gom_Dab
+gom_predict$dCq <- gom_predict$Gom_dCq
+
+#This new optimizer finds and builds a Pareto optimized boundary, returning the whole boundary as well as 10 suggestions described below. The Pareto boundary is the boundary where one parameter can not be improved without sacrificing another parameter. In this case the two parameters are: signal (dCq) and overall antibody usage (Cab and Dab combined), both normalized between 0 and 1.
+
+final <- pareto_optimizer(dab_stock = DAB_STOCK)
+
+#pareto boundry plots
+final[[2]]
+
+#top 10 suggestions
+final[[1]]
+
+# Calling the above will display a dataframe with 10 suggestions
+#each row of the data frame corresponds to:
+
+# 1) Max signal
+# 2) Min overall antibody usage
+# 3) closest to mean of Cab on the optimized front
+# 4) closest to mean of Dab on the optimized front
+# 5) Lowest Cab on pareto front (that isn't lowest overall antibody)
+# 6) Lowest Dab on pareto front (that isn't lowest overall anitbody)
+# 7-9) 3 random other suggestions on the optimized front
+# 10) old optimizer value (highly likely to be near pareto front)
+
+#dataframe to manually explore pareto boundary 
+full_suggestions_list <- final[[3]]
+```
+
+
+
