@@ -18,11 +18,11 @@ Immuno-PCR Optimization Algorithm
 <!-- Introduction -->
 ## Introduction
 
-Immuno-PCRs take a staple proteomics assay known as the ELISA (Enzyme Linked Immunosorbent Assay) and convert the classic HRPS + TMP detection method to a qPCR-based detection method. Usually, a properly developed Immuno-PCR will require 4-10x less reagent and yield 2x-1000x better sensitivity with no loss of specificity.
+Immuno-PCRs take a staple proteomics assay, ELISA (Enzyme Linked Immunosorbent Assay), and convert the standard detection method from HRPS + TMB to qPCR. Usually, a properly developed Immuno-PCR will require 4-10x less reagent and yield 2x-1000x better sensitivity with no loss of specificity.
 
 A sandwich immuno-PCR requires a capture antibody immobilized on a PCR plate as well as a detection antibody conjugated to a target DNA strand. Once a workflow is established, the main part of immuno-PCR development is optimizing the concentrations of the capture and detection antibodies to maximize signal while minimizing background. While a myriad of methods exist to determine optimal concentrations, most require a kind of guess-and-check schema. 
 
-Outlined here is a mathematical model and computer algorithm which does away with guess-and-check methods to optimize antibody concentrations for sandwich Immuno-PCR development.
+Outlined here is a mathematical model and computer software which do away with guess-and-check optimization resulting in faster development and higher quality Immuno-PCRs.
 
 ### Built With
 R4.0.1
