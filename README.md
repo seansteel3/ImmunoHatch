@@ -11,7 +11,9 @@ Immuno-PCR Optimization Algorithm
 * [Performance](#performance)
 * [qPCR Set Up and Data Collection](#qpcr-set-up-and-data-collection)
 * [Code Organization](#code-organization)
+* [Sample Results](#sample-results)
 * [Acknowledgements](#acknowledgements)
+
 
 
 
@@ -90,7 +92,20 @@ pareto_optim() then displays a dataframe with 10 rows:
 And returns two objects, one containing plots of the pareto front, one containting the full pareto front data frame (250 points by default) for further analysis if required. 
 
 
+<!-- SAMPLE RESULTS -->
+## Sample Results
 
+Model prediction integrity plots:
+![qual_cont](https://user-images.githubusercontent.com/67161057/178116890-9e4a317a-fd1e-4963-877b-3cbf54b89ac2.png)
+
+Visualization of predicted surface (black points) and expiremental data (blue points):
+![gomp_surf](https://user-images.githubusercontent.com/67161057/178116916-66842f43-d55a-4c48-bad1-c235bbedaf2f.png)
+
+Pareto boundary visualization:
+![pareto_boundary](https://user-images.githubusercontent.com/67161057/178116937-b6332031-40f7-4d9c-a135-607d9fa1431f.png)
+
+Sample suggested results on pareto front:
+<img width="253" alt="Screen Shot 2022-07-09 at 1 38 03 PM" src="https://user-images.githubusercontent.com/67161057/178116950-ce0bd177-f6c9-4702-bd47-5ade895438f1.png">
 
 <!-- ACKNOWLEDGEMENTS -->
 ## Acknowledgements
