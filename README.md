@@ -77,8 +77,7 @@ The first chunk contains four required functions that the algorithm uses to buil
   * surface_fitter: takes in cleaned data and fits the Gompertz equation to the data
   * jack_fitter: takes in the parameters from the full data model and undergoes jackknife resampling to estimate bias and create confidence intervals for the model. NOTE: when 1 or more data points from qPCR data is of low quality or with high standard deviation in dCq, the jackknife resampling bias correction is often too extreme and produces poor results. In these cases, one should remove outliers (not recommended due to data loss) or use the uncorrected model.
   * predict_optim: takes in the predictions from the model and scales back the amount of antibodies used to reduce dCq signal down to 95% (default). When background effect is minimal, the model predicts using a maximum concetration of antibodies, despite the fact increasing antibody concentrations has minimal effect. This function ensures real world resource constraints are met 
-  * pareto_optim(): takes in the fitted gompertz equation dataframe (table_gompredictior) and picks a random point to run a homebrew pareto optimization front algorithm. The algorithm searches upwards on a normalized dCq axis and leftwards on a normalized total antibody axis to find the pareto front (points where onecannot further optimize one axis without sacrificing the other). This function now runs predict_optim() within it as well.
-
+  * pareto_optim(): takes in the fitted gompertz equation dataframe (table_gompredictior) and picks a random point to run a custom pareto optimization algorithm. The algorithm searches upwards on a normalized dCq space and leftwards on a normalized total antibody space to find the pareto front (points where onecannot further optimize one space without sacrificing the other). 
 pareto_optim() then displays a dataframe with 10 rows:
 1) Max signal
 2) Min overall antibody usage
